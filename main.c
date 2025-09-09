@@ -19,7 +19,6 @@
 // Game Parameters
 
 #define FOOD_SPAWN_DELAY 3 // Seconds
-#define FOOD_SPAWN_RATE 1
 
 // Data Structures
 
@@ -31,8 +30,8 @@ typedef enum {
 } Direction;
 
 typedef struct {
-    unsigned int x; // 0 = left; SCREEN_WIDTH = right
-    unsigned int y; // 0 = up; SCREEN_HEIGHT = down
+    int x; // 0 = left; SCREEN_WIDTH = right
+    int y; // 0 = up; SCREEN_HEIGHT = down
 } Cell;
 
 typedef struct {
@@ -47,7 +46,7 @@ typedef struct {
 
 typedef struct {
     bool quit;
-    Food food[FOOD_SPAWN_RATE];
+    Food food;
     Snake snake;
     Uint32 last_food_update;
     Uint32 last_snake_update;
@@ -88,21 +87,17 @@ void render_snake(SDL_Renderer* const renderer, Game* game) {
     }
 }
 
-void render_food(SDL_Renderer* const renderer, Game* game) {
+void render_food(SDL_Renderer* const renderer, Food* food) {
     scc(SDL_SetRenderDrawColor(renderer, 255, 255, 255, 0)); // RGBA: white
-    for (int i=0; i<FOOD_SPAWN_RATE; i++) {
-        Food* food = &(game->food[i]);
-        if (food->score > 0) {
-            SDL_FRect const rectangle = {
-                food->cell.x * CELL_WIDTH,
-                food->cell.y * CELL_HEIGHT,
-                CELL_WIDTH,
-                CELL_HEIGHT
-            };
-            scc(SDL_RenderFillRect(renderer, &rectangle));
-        }
+    if (food->score > 0) {
+        SDL_FRect const rectangle = {
+            food->cell.x * CELL_WIDTH,
+            food->cell.y * CELL_HEIGHT,
+            CELL_WIDTH,
+            CELL_HEIGHT
+        };
+        scc(SDL_RenderFillRect(renderer, &rectangle));
     }
-
 }
 
 void render_board(SDL_Renderer* const renderer) {
@@ -118,14 +113,14 @@ void render_board(SDL_Renderer* const renderer) {
 void render_game(SDL_Renderer* const renderer, Game* game) {
     render_board(renderer);
     render_snake(renderer, game);
-    render_food(renderer, game);
+    render_food(renderer, &(game->food));
 }
 
 // Game Management
 
 // Returns a random positive integer within [begin,end)
 unsigned int random_coordinate(unsigned int begin, unsigned int end) {
-    return rand() % (end - begin) + begin + 1;
+    return rand() % (end - begin) + begin;
 }
 
 Cell random_cell() {
@@ -137,11 +132,9 @@ Cell random_cell() {
 
 bool is_cell_free(Game* game, Cell* cell) {
     // Check Food presence
-    for (int i=0; i<FOOD_SPAWN_RATE; i++) {
-        if (cell->x == game->food[i].cell.x &&
-            cell->y == game->food[i].cell.y) {
-            return false;
-        }
+    if (cell->x == game->food.cell.x &&
+        cell->y == game->food.cell.y) {
+        return false;
     }
 
     // Check Obstacle presence
@@ -153,7 +146,6 @@ bool is_cell_free(Game* game, Cell* cell) {
             return false;
         }
     }
-
     return true;
 }
 
@@ -169,40 +161,55 @@ Cell random_empty_cell(Game* game) {
     return cell;
 }
 
-// void eat_check(Game* game) {
-//     for (int i=0; i<FOOD_SPAWN_RATE; i++) {
-//         Snake* snake = game->snake;
-//         Food* food = game->food[i];
-//         if (snake->body[0].x == food->cell.x &&
-//             snake->body[0].y == food->cell.y) {
-//             return;
-//         }
-//     }
-//     return;
-// }
+void check_eat(Game* game, Cell* tail, Uint32* now) {
+    if (game->snake.body[0].x == game->food.cell.x &&
+        game->snake.body[0].y == game->food.cell.y) {
+        game->snake.actual_length++;
+        game->snake.body[game->snake.actual_length - 1] = *tail;
+        if (game->snake.actual_length < MAX_SNAKE_LENGTH) {
+            game->food.cell = random_empty_cell(game);
+            game->last_food_update = *now;
+        } else {
+            game->quit = true;
+        }
+    }
+}
+
+void check_death(Game* game) {
+    if (game->snake.body[0].x < 0 || game->snake.body[0].x >= ROWS ||
+        game->snake.body[0].y < 0 || game->snake.body[0].y >= COLS) {
+        game->quit = true;
+    }
+    for (int i=1; i<game->snake.actual_length; i++) {
+        if (game->snake.body[0].x == game->snake.body[i].x &&
+            game->snake.body[0].y  == game->snake.body[i].y) {
+            game->quit = true;
+        }
+    }
+}
 
 void update_snake(Game *game, Uint32* now) {
     if (*now - game->last_snake_update >= SNAKE_UPDATE_INTERVAL) {
+        Cell tail = game->snake.body[game->snake.actual_length - 1];
         for (int i = game->snake.actual_length - 1; i > 0; i--) {
             game->snake.body[i] = game->snake.body[i - 1];
         }
         Cell* head = &game->snake.body[0];
         switch (game->snake_direction) {
-            case UP:    if (head->y > 0) head->y -= 1; break;
-            case DOWN:  if (head->y + 1 < COLS) head->y += 1; break;
-            case LEFT:  if (head->x > 0) head->x -= 1; break;
-            case RIGHT: if (head->x + 1 < ROWS) head->x += 1; break;
+            case UP:    head->y -= 1; break;
+            case DOWN:  head->y += 1; break;
+            case LEFT:  head->x -= 1; break;
+            case RIGHT: head->x += 1; break;
         }
+        check_eat(game, &tail, now);
+        check_death(game);
         game->last_snake_update = *now;
     }
-    // eat_check(Game* game);
 }
 
 void update_food(Game* game, Uint32* now) {
     if (*now - game->last_food_update >= FOOD_UPDATE_INTERVAL) {
-        for (int i = 0; i < FOOD_SPAWN_RATE; i++) {
-            game->food[i].cell = random_empty_cell(game);
-        }
+        game->food.cell = random_empty_cell(game);
         game->last_food_update = *now;
     }
 }
@@ -220,10 +227,8 @@ void snake_init(Game* game) {
 }
 
 void food_init(Game* game) {
-    for (int i=0; i<FOOD_SPAWN_RATE; i++) {
-        game->food[i].score = 1;
-        game->food[i].cell = random_empty_cell(game);
-    }
+    game->food.score = 1;
+    game->food.cell = random_empty_cell(game);
 }
 
 void game_init(Game* game) {
