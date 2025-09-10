@@ -12,7 +12,6 @@
 
 #define ROWS 20
 #define COLS 20
-#define MAX_SNAKE_LENGTH ((ROWS) * (COLS))
 #define MAX_ROTTEN ((ROWS) * (COLS))
 #define SCREEN_WIDTH 500
 #define SCREEN_HEIGHT 500
